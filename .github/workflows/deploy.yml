@@ -53,8 +53,8 @@ jobs:
 
     - name: Copy docker-compose.yml to EC2
       run: |
-        # Encode docker-compose.yml as base64 and send it to the EC2 instance
-        BASE64_ENCODED=$(cat docker-compose.yml | base64)
+        # Encode docker-compose.yml as base64 without line wrapping
+        BASE64_ENCODED=$(cat docker-compose.yml | base64 -w 0)
         COMMAND_ID=$(aws ssm send-command \
           --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
           --document-name "AWS-RunShellScript" \
