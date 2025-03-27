@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  backend:
+    image: cvcharanraj/ai-mock-interview-backend:latest
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=${MONGO_URI}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - JUDGE0_API_KEY=${JUDGE0_API_KEY}
+    networks:
+      - app-network
+  frontend:
+    image: cvcharanraj/ai-mock-interview-frontned:latest
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
