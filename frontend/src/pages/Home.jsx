@@ -21,7 +21,7 @@ function Home() {
         if (err.response) {
           setError(`Failed to load jobs: ${err.response.data.error || err.response.statusText}`);
         } else if (err.request) {
-          setError('No response from server. Is the backend running on port 5000?');
+          setError('No response from server. Is the backend running on port 5001?');
         } else {
           setError('Error: ' + err.message);
         }
