@@ -20,6 +20,32 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
 
+    - name: Verify EC2 Instance State
+      run: |
+        echo "Checking EC2 instance state..."
+        INSTANCE_STATE=$(aws ec2 describe-instances \
+          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+          --query "Reservations[0].Instances[0].State.Name" \
+          --output text)
+        echo "Instance state: $INSTANCE_STATE"
+        if [ "$INSTANCE_STATE" != "running" ]; then
+          echo "Error: EC2 instance is not in a running state. Current state: $INSTANCE_STATE"
+          exit 1
+        fi
+
+    - name: Check SSM Managed Instance
+      run: |
+        echo "Checking if instance is managed by SSM..."
+        INSTANCE_STATUS=$(aws ssm describe-instance-information \
+          --filters "Key=InstanceIds,Values=${{ secrets.EC2_INSTANCE_ID }}" \
+          --query "InstanceInformationList[0].PingStatus" \
+          --output text)
+        echo "SSM Ping Status: $INSTANCE_STATUS"
+        if [ "$INSTANCE_STATUS" != "Online" ]; then
+          echo "Error: EC2 instance is not managed by SSM or is offline. Ping Status: $INSTANCE_STATUS"
+          exit 1
+        fi
+
     - name: Deploy to EC2 via SSM
       run: |
         # Send command to EC2 instance via SSM
