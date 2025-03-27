@@ -11,36 +11,62 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4 # Updated to the latest version
+      uses: actions/checkout@v4
 
-    - name: Set up SSH
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Deploy to EC2 via SSM
       run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/ai_mock_interview.pem
-        chmod 600 ~/.ssh/ai_mock_interview.pem
-        ssh-keyscan -H 54.90.228.139 >> ~/.ssh/known_hosts # Add EC2 host to known_hosts to avoid host key verification prompt
+        # Send command to EC2 instance via SSM
+        COMMAND_ID=$(aws ssm send-command \
+          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+          --document-name "AWS-RunShellScript" \
+          --parameters '{"commands":["cd /home/ec2-user/ai-mock-interview","git pull origin main || echo \"Failed to pull latest code, continuing...\"","docker-compose pull","docker-compose up -d --remove-orphans","docker system prune -f"]}' \
+          --query "Command.CommandId" \
+          --output text)
 
-    - name: Deploy to EC2
-      run: |
-        ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@54.90.228.139 << 'EOF'
-          # Navigate to the project directory (adjust path as needed)
-          cd /home/ec2-user/ai-mock-interview
+        # Wait for the command to complete
+        echo "Waiting for command $COMMAND_ID to complete..."
+        STATUS="InProgress"
+        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
+          sleep 5
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id $COMMAND_ID \
+            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
+            --query "Status" \
+            --output text)
+          echo "Command status: $STATUS"
+        done
 
-          # Pull the latest code from the repository (optional, if code is on EC2)
-          git pull origin main || echo "Failed to pull latest code, continuing..."
+        # Check the command output
+        OUTPUT=$(aws ssm get-command-invocation \
+          --command-id $COMMAND_ID \
+          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
+          --query "StandardOutputContent" \
+          --output text)
+        ERROR=$(aws ssm get-command-invocation \
+          --command-id $COMMAND_ID \
+          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
+          --query "StandardErrorContent" \
+          --output text)
 
-          # Pull the latest images from Docker Hub
-          docker-compose pull
+        echo "Command Output:"
+        echo "$OUTPUT"
+        if [ -n "$ERROR" ]; then
+          echo "Command Error:"
+          echo "$ERROR"
+          exit 1
+        fi
 
-          # Start the containers
-          docker-compose up -d --remove-orphans
-
-          # Clean up unused images and containers to save space
-          docker system prune -f
-        EOF
-
-    - name: Cleanup SSH
-      if: always() # Run even if previous steps fail
-      run: |
-        rm -f ~/.ssh/ai_mock_interview.pem
-        rm -f ~/.ssh/known_hosts
+        # Check the final status
+        if [ "$STATUS" != "Success" ]; then
+          echo "Command failed with status: $STATUS"
+          exit 1
+        fi
+      env:
+        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
