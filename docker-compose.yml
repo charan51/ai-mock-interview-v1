@@ -12,7 +12,7 @@ services:
     networks:
       - app-network
   frontend:
-    image: cvcharanraj/ai-mock-interview-frontned:latest
+    image: cvcharanraj/ai-mock-interview-frontend:latest
     ports:
       - "80:80"
     depends_on:
