@@ -171,7 +171,7 @@ const executeCode = (code, language, testCase) => {
     console: 'inherit',
     sandbox: { tasks: testCase.input },
     require: false,
-    timeout: 5000
+    timeout: 20000
   });
 
   try {

@@ -55,7 +55,7 @@ function MockInterview({ job }) {
         jobId: job._id,
         code,
         language
-      }, { timeout: 60000 });
+      });
       setFeedback(res.data);
     } catch (err) {
       console.error('Submission error:', err);
