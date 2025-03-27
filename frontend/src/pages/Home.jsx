@@ -14,7 +14,7 @@ function Home() {
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get('http://localhost:5001/api/jobs', { timeout: 5000 });
+        const res = await axios.get('http://54.90.228.139:5001/api/jobs', { timeout: 5000 });
         setJobs(res.data);
       } catch (err) {
         console.error('Error fetching jobs:', err);
