@@ -23,11 +23,11 @@ jobs:
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-east-1  # Replace with your region
+        aws-region: us-east-2  # Region where the EC2 instance and SSM parameter are located
 
     - name: Fetch MONGO_URI from SSM Parameter Store
       run: |
-        MONGO_URI=$(aws ssm get-parameter --name "/ai-mock-interview/mongo-uri" --with-decryption --query "Parameter.Value" --output text)
+        MONGO_URI=$(aws ssm get-parameter --name "/ai-mock-interview/mongo-uri" --with-decryption --query "Parameter.Value" --output text --region us-east-2)
         if [ -z "$MONGO_URI" ]; then
           echo "Failed to fetch MONGO_URI from SSM Parameter Store"
           exit 1
@@ -39,15 +39,15 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/ai_mock_interview.pem
         chmod 600 ~/.ssh/ai_mock_interview.pem
-        ssh-keyscan -H 54.90.228.139 >> ~/.ssh/known_hosts
+        ssh-keyscan -H 3.141.202.227 >> ~/.ssh/known_hosts
 
     - name: Deploy to EC2
       run: |
-        ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@54.90.228.139 << 'EOF'
+        ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@3.141.202.227 << 'EOF'
           # Navigate to the project directory
           cd /home/ec2-user/ai-mock-interview || { echo "Directory not found"; exit 1; }
 
-          # Pull the latest code from the repository
+          # Pull the latest code from the repository (if the repo is cloned on EC2)
           git pull origin main || echo "Failed to pull latest code, continuing..."
 
           # Export MONGO_URI to the environment
