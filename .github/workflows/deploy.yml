@@ -11,36 +11,91 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4 # Updated to the latest version
+      uses: actions/checkout@v4
+
+    - name: Install AWS CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y awscli
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-2
+
+    - name: Fetch MONGO_URI from SSM Parameter Store
+      run: |
+        MONGO_URI=$(aws ssm get-parameter --name "/ai-mock-interview/mongo-uri" --with-decryption --query "Parameter.Value" --output text --region us-east-2)
+        if [ -z "$MONGO_URI" ]; then
+          echo "Failed to fetch MONGO_URI from SSM Parameter Store"
+          exit 1
+        fi
+        echo "MONGO_URI=$MONGO_URI" >> $GITHUB_ENV
 
     - name: Set up SSH
       run: |
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/ai_mock_interview.pem
         chmod 600 ~/.ssh/ai_mock_interview.pem
-        ssh-keyscan -H 3.141.202.227 >> ~/.ssh/known_hosts # Add EC2 host to known_hosts to avoid host key verification prompt
+        ssh-keyscan -H 3.141.202.227 >> ~/.ssh/known_hosts
+
+    - name: Install Dependencies on EC2
+      run: |
+        ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@3.141.202.227 << 'EOF'
+          # Update package manager
+          sudo yum update -y
+
+          # Install git
+          sudo yum install -y git
+
+          # Install Docker
+          sudo yum install -y docker
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          sudo usermod -aG docker ec2-user
+          newgrp docker
+
+          # Install docker-compose
+          sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+        EOF
 
     - name: Deploy to EC2
       run: |
         ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@3.141.202.227 << 'EOF'
-          # Navigate to the project directory (adjust path as needed)
-          cd /home/ec2-user/ai-mock-interview
+          # Navigate to the project directory
+          cd /home/ec2-user/ai-mock-interview || { echo "Directory not found"; exit 1; }
 
-          # Pull the latest code from the repository (optional, if code is on EC2)
+          # Configure Git user name and email
+          git config --global user.name "Your Name"  # Replace with your name
+          git config --global user.email "your.email@example.com"  # Replace with your email
+
+          # Pull the latest code from the repository
           git pull origin main || echo "Failed to pull latest code, continuing..."
 
+          # Export MONGO_URI to the environment
+          export MONGO_URI="${{ env.MONGO_URI }}"
+
           # Pull the latest images from Docker Hub
-          docker-compose pull
+          docker-compose pull || { echo "Failed to pull Docker images"; exit 1; }
 
           # Start the containers
-          docker-compose up -d --remove-orphans
+          docker-compose up -d --remove-orphans || { echo "Failed to start containers"; exit 1; }
 
-          # Clean up unused images and containers to save space
+          # Clean up unused images and containers
           docker system prune -f
         EOF
 
+    - name: Verify Application is Running
+      run: |
+        sleep 10  # Wait for the application to start
+        curl -f http://3.141.202.227 || { echo "Application is not accessible"; exit 1; }
+      continue-on-error: false
+
     - name: Cleanup SSH
-      if: always() # Run even if previous steps fail
+      if: always()
       run: |
         rm -f ~/.ssh/ai_mock_interview.pem
         rm -f ~/.ssh/known_hosts
