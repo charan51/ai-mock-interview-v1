@@ -14,7 +14,7 @@ function Home() {
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get('http://54.90.228.139:5001/api/jobs');
+        const res = await axios.get('http://3.141.202.227:5001/api/jobs');
         setJobs(res.data);
       } catch (err) {
         console.error('Error fetching jobs:', err);
