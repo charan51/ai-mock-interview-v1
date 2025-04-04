@@ -31,9 +31,14 @@ jobs:
 
     - name: Fetch MONGO_URI from SSM Parameter Store
       run: |
-        MONGO_URI=$(aws ssm get-parameter --name "/ai-mock-interview/mongo-uri" --with-decryption --query "Parameter.Value" --output text --region us-east-2)
+        MONGO_URI=$(aws ssm get-parameter --name "/ai-mock-interview/mongo-uri" --with-decryption --query "Parameter.Value" --output text --region us-east-2 2>/dev/null) || {
+          echo "Error: The parameter '/ai-mock-interview/mongo-uri' was not found in SSM Parameter Store in region us-east-2."
+          echo "Please create the parameter using the following command:"
+          echo "aws ssm put-parameter --name \"/ai-mock-interview/mongo-uri\" --value \"mongodb://user:password@host:port/db\" --type SecureString --overwrite --region us-east-2"
+          exit 1
+        }
         if [ -z "$MONGO_URI" ]; then
-          echo "Failed to fetch MONGO_URI from SSM Parameter Store"
+          echo "Error: The MONGO_URI value is empty. Please ensure the parameter '/ai-mock-interview/mongo-uri' contains a valid MongoDB URI."
           exit 1
         fi
         echo "MONGO_URI=$MONGO_URI" >> $GITHUB_ENV
