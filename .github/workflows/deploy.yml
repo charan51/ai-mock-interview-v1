@@ -75,7 +75,7 @@ jobs:
       run: |
         ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@3.141.202.227 << 'EOF'
           # Navigate to the project directory
-          cd /ai-mock-interview || { echo "Directory not found"; exit 1; }
+          cd /home/ec2-user/ai-mock-interview-v1 || { echo "Directory not found"; exit 1; }
 
           # Configure Git user name and email
           git config --global user.name "Your Name"  # Replace with your name
