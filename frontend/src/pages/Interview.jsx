@@ -11,7 +11,7 @@ function Interview() {
   useEffect(() => {
     const fetchJob = async () => {
       try {
-const res = await axios.get(`http://54.90.228.139:5001/api/jobs/${jobId}`, {
+const res = await axios.get(`http://3.141.202.227:5001/api/jobs/${jobId}`, {
   
   headers: {
     'user-id': '507f1f77bcf86cd799439011'
