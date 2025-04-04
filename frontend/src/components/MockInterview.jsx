@@ -50,7 +50,7 @@ function MockInterview({ job }) {
     setFeedback(null);
 
     try {
-      const res = await axios.post('http://54.90.228.139:5001/api/attempts/submit', {
+      const res = await axios.post('http://3.141.202.227:5001/api/attempts/submit', {
         userId: '507f1f77bcf86cd799439011',
         jobId: job._id,
         code,
