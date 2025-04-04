@@ -15,10 +15,10 @@ jobs:
 
     - name: Install AWS CLI
       run: |
-        # Download and install AWS CLI v2
+        # Download and install AWS CLI v2 with --update flag
         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
         unzip awscliv2.zip
-        sudo ./aws/install
+        sudo ./aws/install --update
         # Verify installation
         aws --version
 
