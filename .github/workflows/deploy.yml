@@ -13,329 +13,58 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Install AWS CLI
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y awscli
+
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
+        aws-region: us-east-1  # Replace with your region
 
-    - name: Verify EC2 Instance State
-      run: |
-        echo "Checking EC2 instance state..."
-        INSTANCE_STATE=$(aws ec2 describe-instances \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "Reservations[0].Instances[0].State.Name" \
-          --output text)
-        echo "Instance state: $INSTANCE_STATE"
-        if [ "$INSTANCE_STATE" != "running" ]; then
-          echo "Error: EC2 instance is not in a running state. Current state: $INSTANCE_STATE"
-          exit 1
-        fi
-
-    - name: Check SSM Managed Instance
-      run: |
-        echo "Checking if instance is managed by SSM..."
-        INSTANCE_STATUS=$(aws ssm describe-instance-information \
-          --filters "Key=InstanceIds,Values=${{ secrets.EC2_INSTANCE_ID }}" \
-          --query "InstanceInformationList[0].PingStatus" \
-          --output text)
-        echo "SSM Ping Status: $INSTANCE_STATUS"
-        if [ "$INSTANCE_STATUS" != "Online" ]; then
-          echo "Error: EC2 instance is not managed by SSM or is offline. Ping Status: $INSTANCE_STATUS"
-          exit 1
-        fi
-        AGENT_VERSION=$(aws ssm describe-instance-information \
-          --filters "Key=InstanceIds,Values=${{ secrets.EC2_INSTANCE_ID }}" \
-          --query "InstanceInformationList[0].AgentVersion" \
-          --output text)
-        echo "SSM Agent Version: $AGENT_VERSION"
-
-    - name: Copy docker-compose.yml to EC2
-      run: |
-        # Encode docker-compose.yml as base64 without line wrapping
-        BASE64_ENCODED=$(cat docker-compose.yml | base64 -w 0)
-        COMMAND_ID=$(aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --parameters '{"commands":["mkdir -p /home/ec2-user/ai-mock-interview-v1","echo \"'"$BASE64_ENCODED"'\" | base64 -d > /home/ec2-user/ai-mock-interview-v1/docker-compose.yml"]}' \
-          --query "Command.CommandId" \
-          --output text)
-
-        # Wait for the command to complete
-        echo "Waiting for command $COMMAND_ID to complete..."
-        STATUS="InProgress"
-        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
-          sleep 5
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-            --query "Status" \
-            --output text)
-          echo "Command status: $STATUS"
-        done
-
-        # Check the command output
-        OUTPUT=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardOutputContent" \
-          --output text)
-        ERROR=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardErrorContent" \
-          --output text)
-
-        echo "Command Output:"
-        echo "$OUTPUT"
-        if [ -n "$ERROR" ]; then
-          echo "Command Error:"
-          echo "$ERROR"
-          exit 1
-        fi
-
-        if [ "$STATUS" != "Success" ]; then
-          echo "Command failed with status: $STATUS"
-          exit 1
-        fi
-      env:
-        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
-    - name: Fetch Environment Variables from Parameter Store
+    - name: Fetch MONGO_URI from SSM Parameter Store
       run: |
         MONGO_URI=$(aws ssm get-parameter --name "/ai-mock-interview/mongo-uri" --with-decryption --query "Parameter.Value" --output text)
-        OPENAI_API_KEY=$(aws ssm get-parameter --name "/ai-mock-interview/openai-api-key" --with-decryption --query "Parameter.Value" --output text)
-        JUDGE0_API_KEY=$(aws ssm get-parameter --name "/ai-mock-interview/judge0-api-key" --with-decryption --query "Parameter.Value" --output text)
-        COMMAND_ID=$(aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --parameters '{"commands":["echo \"MONGO_URI='"$MONGO_URI"'\" > /home/ec2-user/ai-mock-interview-v1/.env","echo \"OPENAI_API_KEY='"$OPENAI_API_KEY"'\" >> /home/ec2-user/ai-mock-interview-v1/.env","echo \"JUDGE0_API_KEY='"$JUDGE0_API_KEY"'\" >> /home/ec2-user/ai-mock-interview-v1/.env","cat /home/ec2-user/ai-mock-interview-v1/.env"]}' \
-          --query "Command.CommandId" \
-          --output text)
-
-        # Wait for the command to complete
-        echo "Waiting for command $COMMAND_ID to complete..."
-        STATUS="InProgress"
-        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
-          sleep 5
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-            --query "Status" \
-            --output text)
-          echo "Command status: $STATUS"
-        done
-
-        # Check the command output
-        OUTPUT=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardOutputContent" \
-          --output text)
-        ERROR=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardErrorContent" \
-          --output text)
-
-        echo "Command Output:"
-        echo "$OUTPUT"
-        if [ -n "$ERROR" ]; then
-          echo "Command Error:"
-          echo "$ERROR"
+        if [ -z "$MONGO_URI" ]; then
+          echo "Failed to fetch MONGO_URI from SSM Parameter Store"
           exit 1
         fi
+        echo "MONGO_URI=$MONGO_URI" >> $GITHUB_ENV
 
-        if [ "$STATUS" != "Success" ]; then
-          echo "Command failed with status: $STATUS"
-          exit 1
-        fi
-      env:
-        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
-    - name: Install Dependencies on EC2
+    - name: Set up SSH
       run: |
-        # Install git, docker, and docker-compose on the EC2 instance
-        COMMAND_ID=$(aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --parameters '{"commands":["sudo yum install -y git","sudo yum install -y docker","sudo systemctl start docker","sudo systemctl enable docker","sudo usermod -aG docker ec2-user","if ! command -v docker-compose &> /dev/null; then sudo curl -L \"https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose && sudo chmod +x /usr/local/bin/docker-compose; fi","ls -l /usr/local/bin/docker-compose","docker-compose --version || echo \"docker-compose not installed\""]}' \
-          --query "Command.CommandId" \
-          --output text)
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/ai_mock_interview.pem
+        chmod 600 ~/.ssh/ai_mock_interview.pem
+        ssh-keyscan -H 54.90.228.139 >> ~/.ssh/known_hosts
 
-        # Wait for the command to complete
-        echo "Waiting for command $COMMAND_ID to complete..."
-        STATUS="InProgress"
-        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
-          sleep 5
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-            --query "Status" \
-            --output text)
-          echo "Command status: $STATUS"
-        done
-
-        # Check the command output
-        OUTPUT=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardOutputContent" \
-          --output text)
-        ERROR=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardErrorContent" \
-          --output text)
-
-        echo "Command Output:"
-        echo "$OUTPUT"
-        if [ -n "$ERROR" ]; then
-          echo "Command Error:"
-          echo "$ERROR"
-          exit 1
-        fi
-
-        if [ "$STATUS" != "Success" ]; then
-          echo "Command failed with status: $STATUS"
-          exit 1
-        fi
-      env:
-        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
-    - name: Debug Docker Image Pull on EC2
+    - name: Deploy to EC2
       run: |
-        # Debug Docker image pull on the EC2 instance
-        COMMAND_ID=$(aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --parameters '{"commands":["docker pull cvcharanraj/ai-mock-interview-backend:latest || echo \"Failed to pull backend image\"","docker inspect cvcharanraj/ai-mock-interview-backend:latest | grep Architecture || echo \"Backend image not found\"","docker pull cvcharanraj/ai-mock-interview-frontend:latest || echo \"Failed to pull frontend image\"","docker inspect cvcharanraj/ai-mock-interview-frontend:latest | grep Architecture || echo \"Frontend image not found\""]}' \
-          --query "Command.CommandId" \
-          --output text)
+        ssh -i ~/.ssh/ai_mock_interview.pem ec2-user@54.90.228.139 << 'EOF'
+          # Navigate to the project directory
+          cd /home/ec2-user/ai-mock-interview || { echo "Directory not found"; exit 1; }
 
-        # Wait for the command to complete
-        echo "Waiting for command $COMMAND_ID to complete..."
-        STATUS="InProgress"
-        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
-          sleep 5
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-            --query "Status" \
-            --output text)
-          echo "Command status: $STATUS"
-        done
+          # Pull the latest code from the repository
+          git pull origin main || echo "Failed to pull latest code, continuing..."
 
-        # Check the command output
-        OUTPUT=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardOutputContent" \
-          --output text)
-        ERROR=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardErrorContent" \
-          --output text)
+          # Export MONGO_URI to the environment
+          export MONGO_URI="${{ env.MONGO_URI }}"
 
-        echo "Command Output:"
-        echo "$OUTPUT"
-        if [ -n "$ERROR" ]; then
-          echo "Command Error:"
-          echo "$ERROR"
-          exit 1
-        fi
+          # Pull the latest images from Docker Hub
+          docker-compose pull || { echo "Failed to pull Docker images"; exit 1; }
 
-        if [ "$STATUS" != "Success" ]; then
-          echo "Command failed with status: $STATUS"
-          exit 1
-        fi
-      env:
-        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+          # Start the containers
+          docker-compose up -d --remove-orphans || { echo "Failed to start containers"; exit 1; }
 
-    - name: Deploy to EC2 via SSM
+          # Clean up unused images and containers
+          docker system prune -f
+        EOF
+
+    - name: Cleanup SSH
+      if: always()
       run: |
-        # Send command to EC2 instance via SSM
-        COMMAND_ID=$(aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --parameters '{"commands":["cd /home/ec2-user/ai-mock-interview-v1","docker-compose pull","docker-compose up -d --remove-orphans || true","docker-compose ps","docker system prune -f"]}' \
-          --query "Command.CommandId" \
-          --output text)
-
-        # Wait for the command to complete
-        echo "Waiting for command $COMMAND_ID to complete..."
-        STATUS="InProgress"
-        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
-          sleep 5
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id $COMMAND_ID \
-            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-            --query "Status" \
-            --output text)
-          echo "Command status: $STATUS"
-        done
-
-        # Check the command output
-        OUTPUT=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardOutputContent" \
-          --output text)
-        ERROR=$(aws ssm get-command-invocation \
-          --command-id $COMMAND_ID \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardErrorContent" \
-          --output text)
-
-        echo "Command Output:"
-        echo "$OUTPUT"
-        if [ -n "$ERROR" ]; then
-          echo "Command Error:"
-          echo "$ERROR"
-          # Do not exit immediately; check container status first
-        fi
-
-        # Check container status
-        CONTAINER_STATUS=$(aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --parameters '{"commands":["cd /home/ec2-user/ai-mock-interview-v1","docker-compose ps"]}' \
-          --query "Command.CommandId" \
-          --output text)
-
-        echo "Waiting for container status check to complete..."
-        STATUS="InProgress"
-        while [ "$STATUS" == "InProgress" ] || [ "$STATUS" == "Pending" ]; do
-          sleep 5
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id $CONTAINER_STATUS \
-            --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-            --query "Status" \
-            --output text)
-          echo "Command status: $STATUS"
-        done
-
-        CONTAINER_OUTPUT=$(aws ssm get-command-invocation \
-          --command-id $CONTAINER_STATUS \
-          --instance-id ${{ secrets.EC2_INSTANCE_ID }} \
-          --query "StandardOutputContent" \
-          --output text)
-        echo "Container Status:"
-        echo "$CONTAINER_OUTPUT"
-
-        # Check if containers are running
-        if echo "$CONTAINER_OUTPUT" | grep -q "Up"; then
-          echo "Containers are running successfully"
-        else
-          echo "Error: Containers are not running"
-          exit 1
-        fi
-
-        if [ "$STATUS" != "Success" ]; then
-          echo "Command failed with status: $STATUS"
-          exit 1
-        fi
-      env:
-        AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        rm -f ~/.ssh/ai_mock_interview.pem
+        rm -f ~/.ssh/known_hosts
